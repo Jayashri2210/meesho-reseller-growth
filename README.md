@@ -3,51 +3,55 @@ Project Overview
 
 This repository contains an end-to-end reseller growth-monitoring pipeline for Meesho-style reseller operations.
 
-The pipeline connects four Parts:
+The pipeline combines:
 
-Part 1 — SQL Business Query Engine: generates verified business metrics from the reseller/order dataset.
+SQL business queries for verified revenue and reseller metrics.
 
-Part 2 — Python Guardrail & Growth Detection Engine: validates the SQL feed and calculates month-on-month growth using an explicit 8% threshold.
+A Python growth engine with explicit 8% significance rules and input validation.
 
-Part 3 — Reliable AI Narrative Layer: converts verified numbers into stakeholder-ready narratives using deterministic offline templates and protects reseller identities with aliases.
+A deterministic offline narrative layer using reusable templates.
 
-Part 4 — Agentic Workflow: connects Parts 1–3 into a guarded workflow that validates input, calculates growth, prioritizes alerts, drafts messages, and holds them for human approval.
+A guarded mock agent that validates data, calculates growth, limits drafted alerts, and holds every message for human approval.
 
-The complete workflow is:
+The complete workflow runs locally with zero API keys, zero paid services, and zero account-gated services.
 
-Dataset
-   ↓
-Part 1: SQL
-   ↓
-Verified monthly revenue CSV
-   ↓
-Part 2: Validation + MoM growth
-   ↓
-Part 3: Narrative + masking
-   ↓
-Part 4: Guarded mock agent
-   ↓
-Draft held for human approval
+Repository Structure
+meesho-reseller-growth-pipeline/
+├── README.md
+├── data/
+│   └── generate_dataset.py
+├── part1_sql/
+│   └── queries.sql
+├── part2_engine/
+│   ├── growth_engine.py
+│   ├── test_growth_engine.py
+│   └── fixtures/
+│       ├── corrupted_feed.csv
+│       └── monthly_category_revenue.csv
+├── part3_narrative/
+│   ├── prompt_pack.md
+│   ├── narrative_report.md
+│   └── masking.py
+└── part4_agent/
+    ├── agent_spec.md
+    └── mock_agent_runner.py
 
 Requirements
 
-Python 3.10 or newer recommended.
+Python 3.10 or later.
 
-SQLite through Python's standard-library sqlite3 module.
+SQLite3, included with Python.
 
-No paid services are required.
+No external Python packages are required.
 
-No API key is required.
+No API keys are required.
 
-No hosted database is required.
+No paid or hosted service is required.
 
-No real email or messaging service is required.
+Run the Pipeline in Order
+Step 1 — Generate the dataset
 
-The complete pipeline runs offline with zero API keys set.
-
-Step 1 — Generate the Dataset
-
-The supplied seeded generator must be used without changing its seed, weights, or row counts.
+The dataset generator is the fixed seeded script supplied in the project brief.
 
 From the repository root, run:
 
@@ -61,52 +65,33 @@ data/orders.csv
 data/meesho_reseller.db
 
 
-The generated dataset contains:
+The generated dataset contains 24 resellers and 900 orders.
 
-24 resellers
+The random seed is fixed at 42, so regeneration produces the same data.
 
-900 orders
+Step 2 — Run Part 1 SQL
 
-300 April orders
+The SQL business queries are stored in:
 
-300 May orders
-
-300 June orders
-
-The generator uses the fixed random seed 42, making the dataset reproducible.
-
-Step 2 — Run Part 1
-
-Part 1 contains the SQL business query engine.
-
-Run:
-
-python part1_sql/run_queries.py
+part1_sql/queries.sql
 
 
-This creates:
+The database created by Step 1 is:
 
-part1_sql/output/monthly_category_revenue.csv
-part1_sql/output/region_revenue.csv
-part1_sql/output/top_resellers.csv
-part1_sql/output/zero_order_resellers.csv
-part1_sql/output/zero_order_count_demo.csv
-part1_sql/output/june_delivered_aov.csv
+data/meesho_reseller.db
 
 
-The main hand-off file for later Parts is:
+To inspect the SQL manually using SQLite:
 
-part1_sql/output/monthly_category_revenue.csv
-
-
-It contains:
-
-month,category,revenue,n_orders
+sqlite3 data/meesho_reseller.db
 
 
-This file is consumed by Part 2 and Part 4.
+Then paste the queries from:
 
-Part 1 answers the five required business questions:
+part1_sql/queries.sql
+
+
+The five business questions covered are:
 
 Monthly revenue by category.
 
@@ -114,208 +99,263 @@ Region-wise revenue and order count.
 
 Top resellers by total spend.
 
-Resellers with no orders.
+Resellers who have never placed an order, including the COUNT(*) versus COUNT(order_id) demonstration.
 
-June delivered Average Order Value.
+June Delivered-order Average Order Value.
 
-The zero-order query also demonstrates why COUNT(*) is not suitable for detecting an unmatched LEFT JOIN row. For RS024, the result is COUNT(*) = 1 but COUNT(order_id) = 0.
+The required monthly category output is stored as the validated fixture:
 
-Step 3 — Run Part 2
+part2_engine/fixtures/monthly_category_revenue.csv
 
-Part 2 is implemented in:
+Step 3 — Run Part 2 tests
 
-part2_engine/growth_engine.py
+From the repository root:
 
-
-It provides:
-
-mom_growth()
-is_flagged()
-validate_feed()
+python -m unittest discover -s part2_engine -p "test_growth_engine.py"
 
 
-The 8% rule is:
+The Part 2 engine implements:
 
-greater than 8% absolute change → flagged
+mom_growth(previous, current)
 
-less than 8% absolute change → not_flagged
+is_flagged(mom_pct, threshold=8.0)
 
-exactly 8% absolute change → escalate_exact_boundary
+validate_feed(csv_path)
 
-Copy the validated Part 1 feed into the Part 2 fixtures:
+The threshold behavior is:
 
-cp part1_sql/output/monthly_category_revenue.csv part2_engine/fixtures/monthly_category_revenue.csv
-
-
-On Windows PowerShell:
-
-Copy-Item part1_sql/output/monthly_category_revenue.csv part2_engine/fixtures/monthly_category_revenue.csv
+abs(mom_pct) > 8.0  -> flagged
+abs(mom_pct) < 8.0  -> not_flagged
+abs(mom_pct) == 8.0 -> escalate_exact_boundary
 
 
-Run the tests:
-
-python -m unittest part2_engine.test_growth_engine
-
-
-The corrupted feed fixture is:
+The corrupted fixture is:
 
 part2_engine/fixtures/corrupted_feed.csv
 
 
-It must produce exactly three validation errors.
+The validated Part 1 monthly feed is:
 
-Step 4 — Part 3 Narrative Layer
+part2_engine/fixtures/monthly_category_revenue.csv
 
-Part 3 contains:
+Step 4 — Review Part 3 narrative outputs
+
+Part 3 is deterministic and offline.
+
+The reusable prompt pack is:
 
 part3_narrative/prompt_pack.md
+
+
+The worked narrative and chart-choice report is:
+
 part3_narrative/narrative_report.md
+
+
+The reseller masking functions are:
+
 part3_narrative/masking.py
 
 
-The prompt pack defines the reusable narrative structure.
+Run the masking checks with:
 
-The narrative report contains worked May and June Ethnic Wear examples using the verified Part 1 and Part 2 numbers.
-
-The masking module prevents raw reseller names from appearing in external-facing narratives.
-
-For example:
-
-RS019 → ALIAS-19
+python part3_narrative/masking.py
 
 
-The narrative layer is deterministic and fully offline. It does not require an LLM API.
+The masking layer ensures that raw reseller names are not exposed in external-facing narrative text.
 
-Step 5 — Run Part 4
+Step 5 — Run Part 4 mock agent
 
-Part 4 connects the previous Parts into a guarded mock agent.
-
-The specification is:
-
-part4_agent/agent_spec.md
-
-
-The runner is:
+The mock agent is:
 
 part4_agent/mock_agent_runner.py
 
 
-The agent performs these operations:
+For the May scenario, run:
 
-Load the monthly revenue feed.
-
-Validate the feed.
-
-Hard Stop if validation fails.
-
-Calculate MoM growth for every category.
-
-Apply the 8% flagging rule.
-
-Sort flagged categories by absolute growth magnitude.
-
-Draft messages for at most the top three flagged categories.
-
-Record additional flagged categories as suppressed for manual review.
-
-Record exact-boundary categories separately in escalated_categories.
-
-Emit one structured JSON result.
-
-No message is automatically sent.
-
-Successful runs use:
-
-drafted_and_held_for_approval
+python part4_agent/mock_agent_runner.py May part2_engine/fixtures/monthly_category_revenue.csv part2_engine/fixtures/monthly_category_revenue.csv
 
 
-and require human approval before any communication would be considered sent.
+For an actual April-to-May run, the previous and current month feeds should contain the appropriate month-specific rows.
 
-Running the Agent
+For a June scenario, the same runner accepts the corresponding May and June feeds.
 
-The runner exposes:
+The runner performs:
 
-run(month, previous_month_csv, current_month_csv)
+Feed validation.
 
+Hard Stop on invalid input.
 
-The previous-month and current-month files should contain the same schema as the Part 1 monthly revenue output.
+Month-on-month calculation.
 
-For the May scenario, the previous month is April and the current month is May.
+Threshold classification.
 
-For the June scenario, the previous month is May and the current month is June.
+Sorting by absolute MoM magnitude.
+
+Drafting for at most three flagged categories.
+
+Suppression logging for additional flagged categories.
+
+Separate exact-boundary escalation.
+
+Structured JSON output.
+
+Every drafted message is held for human approval. There is no email or automatic sending integration.
+
+Expected Business Results
+
+The seeded dataset produces these key results.
+
+May versus April
+
+Ethnic Wear: 77.1% — flagged.
+
+Western Wear: -23.6% — flagged.
+
+Kids Wear: -23.48% — flagged.
+
+Home & Kitchen: -9.25% — flagged.
+
+Beauty & Personal Care: -12.75% — flagged.
+
+The mock agent drafts the three largest movements by absolute percentage:
+
+Ethnic Wear — 77.1%
+
+Western Wear — -23.6%
+
+Kids Wear — -23.48%
+
+The remaining flagged categories are suppressed for manual review.
+
+June versus May
+
+Ethnic Wear: -58.74% — flagged.
+
+Western Wear: 11.97% — flagged.
+
+Kids Wear: 23.9% — flagged.
+
+Home & Kitchen: 42.59% — flagged.
+
+Beauty & Personal Care: 5.67% — not flagged.
+
+The mock agent drafts:
+
+Ethnic Wear — -58.74%
+
+Home & Kitchen — 42.59%
+
+Kids Wear — 23.9%
+
+Western Wear is suppressed because it is the fourth-largest flagged movement.
+
+Beauty & Personal Care is not included because its 5.67% movement is below the 8% threshold.
+
+How the Parts Connect
+Part 1 → Part 2
+
+Part 1 computes the verified business numbers using SQL first. Part 2 then consumes the monthly category revenue output and applies explicit, testable growth and validation rules.
+
+This mirrors the workflow pattern:
+
+Compute real numbers first → validate and analyze second.
+
+Part 2 → Part 3
+
+Part 2 determines which movements are significant. Part 3 turns only those verified values into stakeholder-ready narrative using a deterministic template.
+
+This prevents narrative generation from inventing or changing business numbers.
+
+Part 3 → Part 4
+
+Part 4 uses the Part 3 template-fill approach to draft messages after the Part 2 guardrails have passed.
+
+Part 4 also applies the masking policy when reseller information is used.
+
+Part 4 workflow
+
+The overall agent follows:
+
+Intake → Validate → Summary → Classify → Report Draft → Suppress/Escalate → Human Review
+
+The agent never automatically sends a message.
 
 Guardrails
 Input Guardrail
 
-validate_feed() must pass before growth calculations or narrative drafting begin.
+validate_feed must pass before growth calculations or drafting occur.
 
-If validation fails, the agent performs a Hard Stop and surfaces the validation errors.
+If validation fails:
+
+validation_status = invalid
+action_taken = hard_stop
+
+
+No MoM computation is attempted.
 
 Action Guardrail
 
-The agent never automatically sends a message.
+All messages are drafts only.
 
-It only creates a draft and holds it for human approval.
+The system does not send email and does not connect to Gmail, SMTP, or any external messaging service.
 
 Output Guardrail
 
-Every number in a drafted message must trace back to verified Part 1 or Part 2 values.
+Every numeric value in a drafted message must trace back to verified Part 1 or Part 2 data.
 
-No invented figures are allowed.
+The system does not invent figures.
 
-Exact 8% changes are escalated for human review.
+Exact 8% boundary cases are escalated for human review rather than automatically classified as flagged or not flagged.
 
-Workflow Mapping
-Part 1 → Part 2
+Offline / Zero-API-Key Operation
 
-This mirrors the "compute real numbers via SQL first, then hand off" order of operations.
+The complete project works with zero API keys set.
 
-Part 1 establishes the verified numerical source of truth before Part 2 performs business-rule calculations.
+The AI-narrative portion is intentionally implemented as a deterministic offline template-fill function. No LLM API is required for grading or execution.
 
-Part 2 → Part 3
+No paid subscription or hosted account is required.
 
-This separates calculation from explanation.
+Academic Integrity / Documentation Reference
 
-Part 2 determines whether a change is significant. Part 3 turns that verified result into a stakeholder-readable narrative without inventing numbers.
+The implementation uses Python standard-library functionality such as:
 
-Part 3 → Part 4
+csv
 
-This connects verified facts, narrative generation and governance.
+sqlite3
 
-The agent uses the validated calculations and narrative template while preserving masking rules.
+random
 
-Part 4
+unittest
 
-Part 4 mirrors an:
+json
 
-Intake → Validate → Compute → Prioritize → Report Draft → Human Validate
+os
 
+sys
 
-workflow.
-
-The human approval checkpoint prevents an automated agent from directly communicating an unreviewed business message.
-
-Zero API Keys
-
-The complete pipeline works with:
-
-API keys required: 0
-
-
-No paid or account-gated service is required.
-
-The narrative stage uses deterministic offline template filling rather than requiring a real LLM API.
-
-Documentation Referenced
-
-Implementation relies on Python standard-library documentation, including:
+Official Python documentation was consulted for standard-library behavior where needed:
 
 Python csv module documentation.
 
 Python sqlite3 module documentation.
 
-Python unittest documentation.
+Python unittest module documentation.
 
-Python file I/O documentation.
+Python json module documentation.
 
-No external API is required for the project.
+No external package or paid service is required.
+
+Submission
+
+The complete project is contained in this public GitHub repository.
+
+The repository is intended to be run in the following order:
+
+Part 1: Generate dataset + SQL
+        ↓
+Part 2: Validate feed + calculate growth
+        ↓
+Part 3: Generate/validate stakeholder narrative
+        ↓
+Part 4: Run guarded mock agent + human approval checkpoint
